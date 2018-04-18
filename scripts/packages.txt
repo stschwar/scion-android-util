@@ -1,0 +1,3 @@
+termux-exec git python python2 clang make libandroid-glob-dev python-dev libffi-dev libcrypt-dev openssl-dev openssl-tool binutils 
+binutils-dev binutils-gold clang libclang libclang-dev llvm libllvm libllvm-dev lld ncurses ncurses-dev ncurses-ui-libs ncurses-utils 
+ndk-sysroot curl grep

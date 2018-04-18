@@ -1,0 +1,127 @@
+#!/bin/bash
+
+ARCH=$(uname -m)
+REQ_PKGS=$(cat packages.txt)
+
+if [[ "$PREFIX" == */usr ]]; then
+  TMP_DIR=$PREFIX/tmp
+  NEW_PREFIX=$PREFIX
+else
+  TMP_DIR=$PREFIX/usr/tmp
+  NEW_PREFIX=$PREFIX/usr
+fi
+
+if [ ! -f .profile ]; then
+  touch .profile
+  echo 'export GOPATH="$HOME/go"' >> ~/.profile
+  echo 'PATH=$PATH:$GOPATH/bin' >> ~/.profile
+  echo 'export SC="$GOPATH/src/github.com/scionproto/scion"' >> ~/.profile
+  echo 'export PYTHONPATH="$SC/python:$SC"' >> ~/.profile
+fi
+
+# Install required packages
+apt update && apt -y upgrade
+for package_name in $REQ_PKGS;
+do
+  if [ $(dpkg-query -W -f='${Status}' $package_name|grep -c "ok installed") -eq 0 ]; then
+    pkg install -y $package_name
+  fi
+done
+
+# Install SCION
+if [[ "$PREFIX" == */usr ]]
+then
+  GOHOME_DIR=$PREFIX/../home/go
+else
+  GOHOME_DIR=$PREFIX/home/go
+fi
+
+SCION_DIR=$GOHOME_DIR/src/github.com/scionproto/scion
+
+if [ ! -d "$SCION_DIR" ]; then
+  mkdir -p $SCION_DIR
+fi
+
+pushd $SCION_DIR
+if [ -z "$(ls -A $SCION_DIR)" ]; then
+  git config --global url.https://github.com/.insteadOf git@github.com:
+  git clone --recursive -b termux-modifications git@github.com:stschwar/scion .
+  # Patching lwip-contrib
+  curl -O https://raw.githubusercontent.com/stschwar/scion/termux-modifications/patches/lwip-contrib.patch
+  patch sub/lwip-contrib/ports/unix/proj/scion/Makefile lwip-contrib.patch
+  rm lwip-contrib.patch
+fi
+
+if [[ "$ARCH" == *"armv7"* ]]; then
+  DEB_PATH=$SCION_DIR/debian-packages/arm
+  # Install necessary patches for arm
+  curl -O https://gist.githubusercontent.com/FR4NK-W/cc6661f420fe5e9805d5b9cdb9c41b1b/raw/7dc3b60b86b4c148c2706e3da82eee8d557bbd45/patches_checksum_bench.patch
+  curl -O https://gist.githubusercontent.com/FR4NK-W/fb7a4b171ab3d5121b6492b9b664fd47/raw/ddeeb8f2337c64f027955e070df6ef34ff26bf9a/patches_dispatcher.patch
+  patch ./c/lib/scion/checksum_bench.c ./patches_checksum_bench.patch
+  rm ./c/lib/scion/checksum_bench.c.orig
+  rm ./patches_checksum_bench.patch
+  patch ./c/dispatcher/dispatcher.c ./patches_dispatcher.patch
+  rm ./c/dispatcher/dispatcher.c.orig
+  rm ./patches_dispatcher.patch
+  curl -O https://raw.githubusercontent.com/stschwar/scion/termux-modifications/patches/udp.go.patch
+  patch ./go/lib/infra/transport/udp.go ./udp.go.patch
+  rm ./udp.go.patch
+else
+  DEB_PATH=$SCION_DIR/debian-packages/aarch64
+fi
+
+pushd $DEB_PATH
+  dpkg -i *.deb
+popd
+apt-mark hold golang golang-doc
+
+# Install dependencies
+pushd $TMP_DIR
+# Cap'n Proto
+  if [ ! -d ./capnproto-c++-0.6.1/ ]; then
+    curl -O https://capnproto.org/capnproto-c++-0.6.1.tar.gz
+    tar zxf capnproto-c++-0.6.1.tar.gz
+    rm capnproto-c++-0.6.1.tar.gz
+    cd capnproto-c++-0.6.1/src/kj
+    # Cap'n Proto patching
+    curl -O https://raw.githubusercontent.com/stschwar/scion/termux-modifications/patches/capnproto-c++-0.6.1/debug.c++.patch
+    patch debug.c++ debug.c++.patch
+    rm debug.c++.patch
+    cd ../../
+    # Cap'n Proto install
+    ./configure --prefix=$NEW_PREFIX TMPDIR=$TMP_DIR
+    make
+    make install
+    cd ..
+  fi
+# zlog
+  if [ ! -d ./zlog-latest-stable/ ]; then
+    curl https://codeload.github.com/HardySimpson/zlog/tar.gz/latest-stable --output zlog-latest-stable.tar.gz
+    tar zxf zlog-latest-stable.tar.gz
+    rm zlog-latest-stable.tar.gz
+    cd zlog-latest-stable/src/
+    # Patching zlog
+    curl -O https://raw.githubusercontent.com/stschwar/scion/termux-modifications/patches/zlog-makefile.patch
+    patch makefile zlog-makefile.patch
+    rm zlog-makefile.patch
+    cd ..
+    # Installing zlog
+    make PREFIX=$NEW_PREFIX
+    make PREFIX=$NEW_PREFIX install
+    cd ..
+  fi
+# uthash
+  if [ ! -d ./uthash-master/ ]; then
+    curl -o uthash-master.zip https://codeload.github.com/troydhanson/uthash/zip/master
+    unzip -q uthash-master.zip
+    cp uthash-master/src/*.h $NEW_PREFIX/include
+  fi
+popd # TMP_DIR
+
+# Install SCION Python dependencies
+pip2 install -r env/pip2/requirements.txt
+pip3 install -r env/pip3/requirements.txt
+TMPDIR=$NEW_PREFIX/tmp pip3 install lz4 PyNaCl PyYAML Pygments
+# Install SCION Go dependencies
+./env/go/deps
+popd # SCION_DIR -> ~
