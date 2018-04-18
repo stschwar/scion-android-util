@@ -42,6 +42,8 @@ if [ ! -d "$SCION_DIR" ]; then
   mkdir -p $SCION_DIR
 fi
 
+source .profile
+
 pushd $SCION_DIR
 if [ -z "$(ls -A $SCION_DIR)" ]; then
   git config --global url.https://github.com/.insteadOf git@github.com:
@@ -125,3 +127,6 @@ TMPDIR=$NEW_PREFIX/tmp pip3 install lz4 PyNaCl PyYAML Pygments
 # Install SCION Go dependencies
 ./env/go/deps
 popd # SCION_DIR -> ~
+
+mkdir -p $NEW_PREFIX/../run/shm/sciond
+mkdir -p $NEW_PREFIX/../run/shm/dispatcher
