@@ -42,7 +42,7 @@ if [ ! -d "$SCION_DIR" ]; then
   mkdir -p $SCION_DIR
 fi
 
-source .profile
+. ./.profile
 
 pushd $SCION_DIR
 if [ -z "$(ls -A $SCION_DIR)" ]; then
